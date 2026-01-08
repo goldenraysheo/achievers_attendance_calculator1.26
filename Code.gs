@@ -1,7 +1,8 @@
 /**
- * Childcare Monthly Attendance Processor
- * Processes monthly attendance data from Daxko Ops exports
+ * Monthly Attendance Processor
+ * Processes monthly attendance data from Daxko Ops exports for any program
  * Automatically creates monthly tabs, archives data, and calculates daily averages
+ * Generic design allows use across multiple programs without code changes
  */
 
 // ===========================
@@ -16,7 +17,7 @@ function onOpen() {
 }
 
 /**
- * Set up the Attendance Report sheet with checkboxes and formatting
+ * Set up the Attendance Report sheet with program name input and formatting
  * Run this once to initialize the sheet
  */
 function setupAttendanceReportSheet() {
@@ -34,35 +35,30 @@ function setupAttendanceReportSheet() {
   // Merge A2:D2
   sheet.getRange('A2:D2').merge();
   const headerCell = sheet.getRange('A2');
-  headerCell.setValue('Which attendance report are you uploading?');
+  headerCell.setValue('Enter the name of the program for which you are uploading attendance.');
   headerCell.setFontWeight('bold');
   headerCell.setFontSize(10);
   headerCell.setFontFamily('Verdana');
   headerCell.setVerticalAlignment('middle');
   headerCell.setHorizontalAlignment('left');
 
-  // Add checkboxes - left column (A3:A4) and right column (C3:C4)
-  sheet.getRange('A3:A4').insertCheckboxes();
-  sheet.getRange('A3:A4').setHorizontalAlignment('left');
-  sheet.getRange('A3:A4').setVerticalAlignment('middle');
+  // Add "Program Name:" label in A4
+  const labelCell = sheet.getRange('A4');
+  labelCell.setValue('Program Name:');
+  labelCell.setFontWeight('bold');
+  labelCell.setFontSize(9);
+  labelCell.setFontFamily('Verdana');
+  labelCell.setVerticalAlignment('middle');
+  labelCell.setHorizontalAlignment('left');
 
-  sheet.getRange('C3:C4').insertCheckboxes();
-  sheet.getRange('C3:C4').setHorizontalAlignment('left');
-  sheet.getRange('C3:C4').setVerticalAlignment('middle');
-
-  // Add report names - left column
-  sheet.getRange('B3').setValue('RPS');
-  sheet.getRange('B4').setValue('Harlem');
-  sheet.getRange('B3:B4').setFontSize(9);
-  sheet.getRange('B3:B4').setFontFamily('Verdana');
-  sheet.getRange('B3:B4').setVerticalAlignment('middle');
-
-  // Add report names - right column
-  sheet.getRange('D3').setValue('Winn');
-  sheet.getRange('D4').setValue('Pec');
-  sheet.getRange('D3:D4').setFontSize(9);
-  sheet.getRange('D3:D4').setFontFamily('Verdana');
-  sheet.getRange('D3:D4').setVerticalAlignment('middle');
+  // Add input cell in B4
+  const inputCell = sheet.getRange('B4');
+  inputCell.setBackground('#FFFACD'); // Soft yellow
+  inputCell.setBorder(null, null, true, null, null, null, '#666666', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  inputCell.setFontFamily('Verdana');
+  inputCell.setFontSize(9);
+  inputCell.setHorizontalAlignment('left');
+  inputCell.setVerticalAlignment('middle');
 
   // Thin light border bottom of A8:D8
   sheet.getRange('A8:D8').setBorder(null, null, true, null, null, null, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
@@ -106,44 +102,28 @@ function processAttendance() {
     return;
   }
 
-  // Read checkboxes (4 report types in 2 columns)
-  const rpsChecked = sheet.getRange('A3').getValue();
-  const harlemChecked = sheet.getRange('A4').getValue();
-  const winnChecked = sheet.getRange('C3').getValue();
-  const pecChecked = sheet.getRange('C4').getValue();
-
-  // Count how many are checked
-  const checkedCount = (rpsChecked ? 1 : 0) + (harlemChecked ? 1 : 0) + (winnChecked ? 1 : 0) + (pecChecked ? 1 : 0);
+  // Read program name from B4
+  const programNameRaw = sheet.getRange('B4').getValue();
+  const programName = String(programNameRaw).trim();
 
   // Validation
-  if (checkedCount === 0) {
-    ui.alert('No Selection', 'Please select a report type', ui.ButtonSet.OK);
+  if (!programName) {
+    ui.alert('No Program Name', 'Please enter a program name in cell B4', ui.ButtonSet.OK);
     return;
   }
 
-  if (checkedCount > 1) {
-    ui.alert('Multiple Selections', 'Please select only ONE report type', ui.ButtonSet.OK);
+  if (programName.length > 25) {
+    ui.alert('Program Name Too Long', 'Program name must be 25 characters or less.\n\nCurrent length: ' + programName.length, ui.ButtonSet.OK);
     return;
   }
-
-  // Determine which report type
-  let reportType = null;
-  if (rpsChecked) reportType = 'RPS';
-  else if (harlemChecked) reportType = 'Harlem';
-  else if (winnChecked) reportType = 'Winn';
-  else if (pecChecked) reportType = 'Pec';
 
   // Call the processing function
-  handleReportTypeSelection(reportType);
-
-  // Uncheck all boxes after successful processing
-  sheet.getRange('A3:A4').uncheck();
-  sheet.getRange('C3:C4').uncheck();
+  handleReportTypeSelection(programName);
 }
 
 /**
- * Handle the report type selection from the dialog
- * Called by the HTML dialog when user clicks Process or Cancel
+ * Handle the program name and process the attendance data
+ * Called by processAttendance after validating the program name input
  */
 function handleReportTypeSelection(reportType) {
   if (!reportType) {
@@ -551,8 +531,8 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
       sheet = ss.insertSheet('Daily Averages');
     }
 
-    // Add headers in row 4 (now with 5 columns including District)
-    sheet.getRange(4, 1, 1, 5).setValues([['Site', 'Month', 'District', 'Average Attendance', 'Peak Attendance']]);
+    // Add headers in row 4 (now with 5 columns including Program)
+    sheet.getRange(4, 1, 1, 5).setValues([['Site', 'Month', 'Program', 'Average Attendance', 'Peak Attendance']]);
     applyDailyAveragesFormatting(sheet, 0);
   }
 
@@ -597,7 +577,7 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
  * Clear the Attendance Report sheet
  */
 function clearAttendanceReportSheet(sheet) {
-  // Only clear data from row 10 onwards (preserve checkboxes and header in rows 1-9)
+  // Only clear data from row 10 onwards (preserve header and program name input in rows 1-9)
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
 
@@ -612,9 +592,10 @@ function clearAttendanceReportSheet(sheet) {
   pasteCell.setFontFamily('Verdana');
   pasteCell.setFontSize(9);
 
-  // Uncheck all checkboxes (4 report types)
-  sheet.getRange('A3:A4').uncheck();
-  sheet.getRange('C3:C4').uncheck();
+  // Clear the program name input cell
+  sheet.getRange('B4').clear();
+  sheet.getRange('B4').setBackground('#FFFACD'); // Restore soft yellow background
+  sheet.getRange('B4').setBorder(null, null, true, null, null, null, '#666666', SpreadsheetApp.BorderStyle.SOLID_MEDIUM); // Restore border
 }
 
 // ===========================
