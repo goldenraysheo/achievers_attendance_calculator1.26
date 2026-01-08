@@ -337,6 +337,8 @@ function processAttendanceData(allData) {
 function calculateDailyAverages(allData, month, reportType) {
   // Dictionary to hold Site -> (Date -> Count)
   const siteData = {};
+  // Dictionary to hold Site -> Set of unique student names
+  const siteStudents = {};
 
   // Get all dates from row 1 (index 0)
   // Dates appear in columns every 3 positions starting from column D (index 3)
@@ -362,14 +364,23 @@ function calculateDailyAverages(allData, month, reportType) {
   // Process each student row (start from row 3, index 2)
   for (let r = 2; r < allData.length; r++) {
     const row = allData[r];
+    const firstName = row[0] || '';
+    const lastName = row[1] || '';
     const location = row[2] || '';
 
     if (!location) continue;
+    if (!firstName && !lastName) continue;
 
-    // Initialize site in dictionary
+    // Initialize site in dictionaries
     if (!siteData[location]) {
       siteData[location] = {};
     }
+    if (!siteStudents[location]) {
+      siteStudents[location] = new Set();
+    }
+
+    // Track if this student attended at all during the month
+    let studentAttended = false;
 
     // Check PM attendance for each date
     for (let i = 0; i < dates.length; i++) {
@@ -383,7 +394,14 @@ function calculateDailyAverages(allData, month, reportType) {
           siteData[location][dateInfo.date] = 0;
         }
         siteData[location][dateInfo.date]++;
+        studentAttended = true;
       }
+    }
+
+    // If student attended at least once, add to unique students set
+    if (studentAttended) {
+      const studentName = `${lastName}, ${firstName}`;
+      siteStudents[location].add(studentName);
     }
   }
 
@@ -401,12 +419,16 @@ function calculateDailyAverages(allData, month, reportType) {
     // Find peak attendance (highest single day)
     const peak = Math.max(...Object.values(dateCounts));
 
+    // Count unique students
+    const uniqueStudents = siteStudents[site] ? siteStudents[site].size : 0;
+
     averages.push({
       site: site,
       month: month,
       reportType: reportType,
       average: average,
-      peak: peak
+      peak: peak,
+      uniqueStudents: uniqueStudents
     });
   }
 
@@ -531,8 +553,8 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
       sheet = ss.insertSheet('Daily Averages');
     }
 
-    // Add headers in row 4 (now with 5 columns including Program)
-    sheet.getRange(4, 1, 1, 5).setValues([['Site', 'Month', 'Program', 'Average Attendance', 'Peak Attendance']]);
+    // Add headers in row 4 (now with 6 columns including Program and Unique Students)
+    sheet.getRange(4, 1, 1, 6).setValues([['Site', 'Month', 'Program', 'Average Attendance', 'Peak Attendance', 'Unique Students']]);
     applyDailyAveragesFormatting(sheet, 0);
   }
 
@@ -541,7 +563,7 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
   if (lastRow < 4) lastRow = 4;
 
   // Check if this month-report combo already exists and remove old data
-  const numCols = Math.max(sheet.getLastColumn(), 5);
+  const numCols = Math.max(sheet.getLastColumn(), 6);
   const existingData = sheet.getRange(5, 1, Math.max(1, lastRow - 4), numCols).getValues();
 
   // Filter out rows that match this month AND report type
@@ -559,12 +581,12 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
   // Combine filtered data with new averages
   const allData = filteredData.filter(row => row[0]); // Remove empty rows
   for (const avg of averages) {
-    allData.push([avg.site, avg.month, avg.reportType, avg.average, avg.peak]);
+    allData.push([avg.site, avg.month, avg.reportType, avg.average, avg.peak, avg.uniqueStudents]);
   }
 
   // Write all data
   if (allData.length > 0) {
-    sheet.getRange(5, 1, allData.length, 5).setValues(allData);
+    sheet.getRange(5, 1, allData.length, 6).setValues(allData);
   }
 
   // Apply formatting
@@ -690,16 +712,16 @@ function applyDailyAveragesFormatting(sheet, dataRowCount) {
   fullRange.setFontSize(9);
   fullRange.setFontColor('#333333');
 
-  // Bold headers in row 4 (now 5 columns)
-  const headerRange = sheet.getRange(4, 1, 1, 5);
+  // Bold headers in row 4 (now 6 columns)
+  const headerRange = sheet.getRange(4, 1, 1, 6);
   headerRange.setFontWeight('bold');
 
   // Add thicker border under header row
   headerRange.setBorder(null, null, true, null, null, null, '#666666', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
-  // Add borders around data area (now 5 columns)
+  // Add borders around data area (now 6 columns)
   if (dataRowCount > 0) {
-    const dataRange = sheet.getRange(4, 1, dataRowCount + 1, 5);
+    const dataRange = sheet.getRange(4, 1, dataRowCount + 1, 6);
 
     // Outer border - soft black
     dataRange.setBorder(true, true, true, true, false, false, '#666666', SpreadsheetApp.BorderStyle.SOLID);
@@ -717,7 +739,7 @@ function applyDailyAveragesFormatting(sheet, dataRowCount) {
     if (existingFilter) {
       existingFilter.remove();
     }
-    sheet.getRange(4, 1, dataRowCount + 1, 5).createFilter();
+    sheet.getRange(4, 1, dataRowCount + 1, 6).createFilter();
   }
 
   // Set specific column widths to ensure headers are fully visible
@@ -726,4 +748,5 @@ function applyDailyAveragesFormatting(sheet, dataRowCount) {
   sheet.setColumnWidth(3, 200); // Program (max 25 chars, so needs room)
   sheet.setColumnWidth(4, 150); // Average Attendance
   sheet.setColumnWidth(5, 150); // Peak Attendance
+  sheet.setColumnWidth(6, 130); // Unique Students
 }
