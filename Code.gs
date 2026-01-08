@@ -670,8 +670,11 @@ function applyMonthlySheetFormatting(sheet, dataRowCount) {
     sheet.getRange(5, 1, dataRowCount + 1, 4).createFilter();
   }
 
-  // Auto-resize columns to fit content (prevents awkward text wrapping)
-  sheet.autoResizeColumns(1, 4);
+  // Set specific column widths to ensure content is fully visible
+  sheet.setColumnWidth(1, 200); // Last Name, First Name
+  sheet.setColumnWidth(2, 120); // Attended Days
+  sheet.setColumnWidth(3, 180); // Location
+  sheet.setColumnWidth(4, 100); // Attend %
 }
 
 /**
@@ -717,6 +720,10 @@ function applyDailyAveragesFormatting(sheet, dataRowCount) {
     sheet.getRange(4, 1, dataRowCount + 1, 5).createFilter();
   }
 
-  // Auto-resize columns to fit content (now 5 columns)
-  sheet.autoResizeColumns(1, 5);
+  // Set specific column widths to ensure headers are fully visible
+  sheet.setColumnWidth(1, 180); // Site
+  sheet.setColumnWidth(2, 80);  // Month
+  sheet.setColumnWidth(3, 200); // Program (max 25 chars, so needs room)
+  sheet.setColumnWidth(4, 150); // Average Attendance
+  sheet.setColumnWidth(5, 150); // Peak Attendance
 }
