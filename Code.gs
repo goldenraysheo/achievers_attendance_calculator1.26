@@ -1,8 +1,7 @@
 /**
- * Monthly Attendance Processor
- * Processes monthly attendance data from Daxko Ops exports for any program
+ * Camp Monthly Attendance Processor
+ * Processes monthly attendance data from Daxko Ops exports
  * Automatically creates monthly tabs, archives data, and calculates daily averages
- * Generic design allows use across multiple programs without code changes
  */
 
 // ===========================
@@ -17,7 +16,7 @@ function onOpen() {
 }
 
 /**
- * Set up the Attendance Report sheet with program name input and formatting
+ * Set up the Attendance Report sheet with checkboxes and formatting
  * Run this once to initialize the sheet
  */
 function setupAttendanceReportSheet() {
@@ -35,30 +34,35 @@ function setupAttendanceReportSheet() {
   // Merge A2:D2
   sheet.getRange('A2:D2').merge();
   const headerCell = sheet.getRange('A2');
-  headerCell.setValue('Enter the name of the program for which you are uploading attendance.');
+  headerCell.setValue('Which camp attendance report are you uploading?');
   headerCell.setFontWeight('bold');
   headerCell.setFontSize(10);
   headerCell.setFontFamily('Verdana');
   headerCell.setVerticalAlignment('middle');
   headerCell.setHorizontalAlignment('left');
 
-  // Add "Program Name:" label in A4
-  const labelCell = sheet.getRange('A4');
-  labelCell.setValue('Program Name:');
-  labelCell.setFontWeight('bold');
-  labelCell.setFontSize(9);
-  labelCell.setFontFamily('Verdana');
-  labelCell.setVerticalAlignment('middle');
-  labelCell.setHorizontalAlignment('left');
+  // Add checkboxes - left column (A3:A4) and right column (C3:C4)
+  sheet.getRange('A3:A4').insertCheckboxes();
+  sheet.getRange('A3:A4').setHorizontalAlignment('left');
+  sheet.getRange('A3:A4').setVerticalAlignment('middle');
 
-  // Add input cell in B4
-  const inputCell = sheet.getRange('B4');
-  inputCell.setBackground('#FFFACD'); // Soft yellow
-  inputCell.setBorder(null, null, true, null, null, null, '#666666', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
-  inputCell.setFontFamily('Verdana');
-  inputCell.setFontSize(9);
-  inputCell.setHorizontalAlignment('left');
-  inputCell.setVerticalAlignment('middle');
+  sheet.getRange('C3:C4').insertCheckboxes();
+  sheet.getRange('C3:C4').setHorizontalAlignment('left');
+  sheet.getRange('C3:C4').setVerticalAlignment('middle');
+
+  // Add report names - left column
+  sheet.getRange('B3').setValue('Camp');
+  sheet.getRange('B4').setValue('NEB-ADVC');
+  sheet.getRange('B3:B4').setFontSize(9);
+  sheet.getRange('B3:B4').setFontFamily('Verdana');
+  sheet.getRange('B3:B4').setVerticalAlignment('middle');
+
+  // Add report names - right column
+  sheet.getRange('D3').setValue('SAY-ADVC');
+  sheet.getRange('D4').setValue('GS-ADVC');
+  sheet.getRange('D3:D4').setFontSize(9);
+  sheet.getRange('D3:D4').setFontFamily('Verdana');
+  sheet.getRange('D3:D4').setVerticalAlignment('middle');
 
   // Thin light border bottom of A8:D8
   sheet.getRange('A8:D8').setBorder(null, null, true, null, null, null, '#CCCCCC', SpreadsheetApp.BorderStyle.SOLID);
@@ -102,28 +106,44 @@ function processAttendance() {
     return;
   }
 
-  // Read program name from B4
-  const programNameRaw = sheet.getRange('B4').getValue();
-  const programName = String(programNameRaw).trim();
+  // Read checkboxes (4 report types in 2 columns)
+  const campChecked = sheet.getRange('A3').getValue();
+  const nebChecked = sheet.getRange('A4').getValue();
+  const sayChecked = sheet.getRange('C3').getValue();
+  const gsChecked = sheet.getRange('C4').getValue();
+
+  // Count how many are checked
+  const checkedCount = (campChecked ? 1 : 0) + (nebChecked ? 1 : 0) + (sayChecked ? 1 : 0) + (gsChecked ? 1 : 0);
 
   // Validation
-  if (!programName) {
-    ui.alert('No Program Name', 'Please enter a program name in cell B4', ui.ButtonSet.OK);
+  if (checkedCount === 0) {
+    ui.alert('No Selection', 'Please select a report type', ui.ButtonSet.OK);
     return;
   }
 
-  if (programName.length > 25) {
-    ui.alert('Program Name Too Long', 'Program name must be 25 characters or less.\n\nCurrent length: ' + programName.length, ui.ButtonSet.OK);
+  if (checkedCount > 1) {
+    ui.alert('Multiple Selections', 'Please select only ONE report type', ui.ButtonSet.OK);
     return;
   }
+
+  // Determine which report type
+  let reportType = null;
+  if (campChecked) reportType = 'Camp';
+  else if (nebChecked) reportType = 'NEB-ADVC';
+  else if (sayChecked) reportType = 'SAY-ADVC';
+  else if (gsChecked) reportType = 'GS-ADVC';
 
   // Call the processing function
-  handleReportTypeSelection(programName);
+  handleReportTypeSelection(reportType);
+
+  // Uncheck all boxes after successful processing
+  sheet.getRange('A3:A4').uncheck();
+  sheet.getRange('C3:C4').uncheck();
 }
 
 /**
- * Handle the program name and process the attendance data
- * Called by processAttendance after validating the program name input
+ * Handle the report type selection from the dialog
+ * Called by the HTML dialog when user clicks Process or Cancel
  */
 function handleReportTypeSelection(reportType) {
   if (!reportType) {
@@ -337,8 +357,6 @@ function processAttendanceData(allData) {
 function calculateDailyAverages(allData, month, reportType) {
   // Dictionary to hold Site -> (Date -> Count)
   const siteData = {};
-  // Dictionary to hold Site -> Set of unique student names
-  const siteStudents = {};
 
   // Get all dates from row 1 (index 0)
   // Dates appear in columns every 3 positions starting from column D (index 3)
@@ -364,23 +382,14 @@ function calculateDailyAverages(allData, month, reportType) {
   // Process each student row (start from row 3, index 2)
   for (let r = 2; r < allData.length; r++) {
     const row = allData[r];
-    const firstName = row[0] || '';
-    const lastName = row[1] || '';
     const location = row[2] || '';
 
     if (!location) continue;
-    if (!firstName && !lastName) continue;
 
-    // Initialize site in dictionaries
+    // Initialize site in dictionary
     if (!siteData[location]) {
       siteData[location] = {};
     }
-    if (!siteStudents[location]) {
-      siteStudents[location] = new Set();
-    }
-
-    // Track if this student attended at all during the month
-    let studentAttended = false;
 
     // Check PM attendance for each date
     for (let i = 0; i < dates.length; i++) {
@@ -394,14 +403,7 @@ function calculateDailyAverages(allData, month, reportType) {
           siteData[location][dateInfo.date] = 0;
         }
         siteData[location][dateInfo.date]++;
-        studentAttended = true;
       }
-    }
-
-    // If student attended at least once, add to unique students set
-    if (studentAttended) {
-      const studentName = `${lastName}, ${firstName}`;
-      siteStudents[location].add(studentName);
     }
   }
 
@@ -419,16 +421,12 @@ function calculateDailyAverages(allData, month, reportType) {
     // Find peak attendance (highest single day)
     const peak = Math.max(...Object.values(dateCounts));
 
-    // Count unique students
-    const uniqueStudents = siteStudents[site] ? siteStudents[site].size : 0;
-
     averages.push({
       site: site,
       month: month,
       reportType: reportType,
       average: average,
-      peak: peak,
-      uniqueStudents: uniqueStudents
+      peak: peak
     });
   }
 
@@ -553,8 +551,8 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
       sheet = ss.insertSheet('Daily Averages');
     }
 
-    // Add headers in row 4 (now with 6 columns including Program and Unique Students)
-    sheet.getRange(4, 1, 1, 6).setValues([['Site', 'Month', 'Program', 'Average Attendance', 'Peak Attendance', 'Unique Students']]);
+    // Add headers in row 4 (now with 5 columns including District)
+    sheet.getRange(4, 1, 1, 5).setValues([['Site', 'Month', 'District', 'Average Attendance', 'Peak Attendance']]);
     applyDailyAveragesFormatting(sheet, 0);
   }
 
@@ -563,7 +561,7 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
   if (lastRow < 4) lastRow = 4;
 
   // Check if this month-report combo already exists and remove old data
-  const numCols = Math.max(sheet.getLastColumn(), 6);
+  const numCols = Math.max(sheet.getLastColumn(), 5);
   const existingData = sheet.getRange(5, 1, Math.max(1, lastRow - 4), numCols).getValues();
 
   // Filter out rows that match this month AND report type
@@ -581,12 +579,12 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
   // Combine filtered data with new averages
   const allData = filteredData.filter(row => row[0]); // Remove empty rows
   for (const avg of averages) {
-    allData.push([avg.site, avg.month, avg.reportType, avg.average, avg.peak, avg.uniqueStudents]);
+    allData.push([avg.site, avg.month, avg.reportType, avg.average, avg.peak]);
   }
 
   // Write all data
   if (allData.length > 0) {
-    sheet.getRange(5, 1, allData.length, 6).setValues(allData);
+    sheet.getRange(5, 1, allData.length, 5).setValues(allData);
   }
 
   // Apply formatting
@@ -599,7 +597,7 @@ function updateDailyAveragesSheet(ss, month, reportType, averages) {
  * Clear the Attendance Report sheet
  */
 function clearAttendanceReportSheet(sheet) {
-  // Only clear data from row 10 onwards (preserve header and program name input in rows 1-9)
+  // Only clear data from row 10 onwards (preserve checkboxes and header in rows 1-9)
   const lastRow = sheet.getLastRow();
   const lastCol = sheet.getLastColumn();
 
@@ -614,10 +612,9 @@ function clearAttendanceReportSheet(sheet) {
   pasteCell.setFontFamily('Verdana');
   pasteCell.setFontSize(9);
 
-  // Clear the program name input cell
-  sheet.getRange('B4').clear();
-  sheet.getRange('B4').setBackground('#FFFACD'); // Restore soft yellow background
-  sheet.getRange('B4').setBorder(null, null, true, null, null, null, '#666666', SpreadsheetApp.BorderStyle.SOLID_MEDIUM); // Restore border
+  // Uncheck all checkboxes (4 report types)
+  sheet.getRange('A3:A4').uncheck();
+  sheet.getRange('C3:C4').uncheck();
 }
 
 // ===========================
@@ -692,11 +689,8 @@ function applyMonthlySheetFormatting(sheet, dataRowCount) {
     sheet.getRange(5, 1, dataRowCount + 1, 4).createFilter();
   }
 
-  // Set specific column widths to ensure content is fully visible
-  sheet.setColumnWidth(1, 200); // Last Name, First Name
-  sheet.setColumnWidth(2, 120); // Attended Days
-  sheet.setColumnWidth(3, 180); // Location
-  sheet.setColumnWidth(4, 100); // Attend %
+  // Auto-resize columns to fit content (prevents awkward text wrapping)
+  sheet.autoResizeColumns(1, 4);
 }
 
 /**
@@ -712,16 +706,16 @@ function applyDailyAveragesFormatting(sheet, dataRowCount) {
   fullRange.setFontSize(9);
   fullRange.setFontColor('#333333');
 
-  // Bold headers in row 4 (now 6 columns)
-  const headerRange = sheet.getRange(4, 1, 1, 6);
+  // Bold headers in row 4 (now 5 columns)
+  const headerRange = sheet.getRange(4, 1, 1, 5);
   headerRange.setFontWeight('bold');
 
   // Add thicker border under header row
   headerRange.setBorder(null, null, true, null, null, null, '#666666', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
-  // Add borders around data area (now 6 columns)
+  // Add borders around data area (now 5 columns)
   if (dataRowCount > 0) {
-    const dataRange = sheet.getRange(4, 1, dataRowCount + 1, 6);
+    const dataRange = sheet.getRange(4, 1, dataRowCount + 1, 5);
 
     // Outer border - soft black
     dataRange.setBorder(true, true, true, true, false, false, '#666666', SpreadsheetApp.BorderStyle.SOLID);
@@ -739,14 +733,9 @@ function applyDailyAveragesFormatting(sheet, dataRowCount) {
     if (existingFilter) {
       existingFilter.remove();
     }
-    sheet.getRange(4, 1, dataRowCount + 1, 6).createFilter();
+    sheet.getRange(4, 1, dataRowCount + 1, 5).createFilter();
   }
 
-  // Set specific column widths to ensure headers are fully visible
-  sheet.setColumnWidth(1, 180); // Site
-  sheet.setColumnWidth(2, 80);  // Month
-  sheet.setColumnWidth(3, 200); // Program (max 25 chars, so needs room)
-  sheet.setColumnWidth(4, 150); // Average Attendance
-  sheet.setColumnWidth(5, 150); // Peak Attendance
-  sheet.setColumnWidth(6, 130); // Unique Students
+  // Auto-resize columns to fit content (now 5 columns)
+  sheet.autoResizeColumns(1, 5);
 }
